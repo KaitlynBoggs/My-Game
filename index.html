@@ -1,1 +1,263 @@
-hello Stupid Fish Eater! 
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Space Invaders FPS</title>
+	<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+			width: 100vw;
+			height: 100vh;
+			overflow: hidden;
+			background: #000;
+		}
+		#gameCanvas {
+			display: block;
+			width: 100vw;
+			height: 100vh;
+			background: #000;
+		}
+		#crosshair {
+			position: fixed;
+			left: 50%;
+			top: 50%;
+			width: 32px;
+			height: 32px;
+			margin-left: -16px;
+			margin-top: -16px;
+			pointer-events: none;
+			z-index: 10;
+			opacity: 0.7;
+		}
+		#score {
+			position: fixed;
+			top: 20px;
+			left: 20px;
+			color: #0f0;
+			font-family: 'Press Start 2P', monospace;
+			font-size: 20px;
+			z-index: 20;
+			text-shadow: 2px 2px 0 #222;
+		}
+	</style>
+</head>
+<body>
+	<canvas id="gameCanvas"></canvas>
+	<div id="score">Score: 0</div>
+	<svg id="crosshair" viewBox="0 0 32 32">
+		<circle cx="16" cy="16" r="10" stroke="#0f0" stroke-width="2" fill="none"/>
+		<line x1="16" y1="0" x2="16" y2="32" stroke="#0f0" stroke-width="2"/>
+		<line x1="0" y1="16" x2="32" y2="16" stroke="#0f0" stroke-width="2"/>
+	</svg>
+	<script>
+// Sound effect: Miku-like chiptune voice for shooting
+function playMikuShot() {
+	const ctx = new (window.AudioContext || window.webkitAudioContext)();
+	const o = ctx.createOscillator();
+	const g = ctx.createGain();
+	// Miku-like: high-pitched, vibrato, short envelope
+	o.type = 'triangle';
+	o.frequency.setValueAtTime(880, ctx.currentTime);
+	o.frequency.linearRampToValueAtTime(1047, ctx.currentTime + 0.05);
+	// Vibrato
+	const lfo = ctx.createOscillator();
+	lfo.type = 'sine';
+	lfo.frequency.value = 12;
+	const lfoGain = ctx.createGain();
+	lfoGain.gain.value = 18;
+	lfo.connect(lfoGain).connect(o.frequency);
+	lfo.start();
+	// Envelope
+	g.gain.setValueAtTime(0.18, ctx.currentTime);
+	g.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.08);
+	g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.18);
+	o.connect(g).connect(ctx.destination);
+	o.start();
+	o.stop(ctx.currentTime + 0.18);
+	o.onended = () => { ctx.close(); };
+}
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W = window.innerWidth;
+let H = window.innerHeight;
+canvas.width = W;
+canvas.height = H;
+
+// Player state
+let score = 0;
+let gameOver = false;
+let lastShot = 0;
+const SHOT_DELAY = 250; // ms
+
+// Invader state
+const invaderRows = 3;
+const invaderCols = 7;
+const invaderSpacing = 80;
+const invaderSize = 40;
+let invaders = [];
+let invaderSpeed = 0.7;
+let invaderDir = 1;
+
+// Bullets
+let bullets = [];
+
+function resetInvaders() {
+	invaders = [];
+	for (let row = 0; row < invaderRows; row++) {
+		for (let col = 0; col < invaderCols; col++) {
+			invaders.push({
+				x: W/2 - (invaderCols/2)*invaderSpacing + col*invaderSpacing,
+				y: 100 + row*invaderSpacing,
+				alive: true
+			});
+		}
+	}
+}
+
+resetInvaders();
+
+function drawInvaders() {
+	ctx.save();
+	invaders.forEach(inv => {
+		if (!inv.alive) return;
+		ctx.save();
+		ctx.translate(inv.x, inv.y);
+		// Simple 3D effect: draw a shadow
+		ctx.fillStyle = '#222';
+		ctx.fillRect(-invaderSize/2+4, -invaderSize/2+8, invaderSize, invaderSize/2);
+		// Invader body
+		ctx.fillStyle = '#0ff';
+		ctx.fillRect(-invaderSize/2, -invaderSize/2, invaderSize, invaderSize/2);
+		ctx.fillStyle = '#fff';
+		ctx.fillRect(-invaderSize/4, -invaderSize/4, invaderSize/2, invaderSize/4);
+		// Eyes
+		ctx.fillStyle = '#222';
+		ctx.fillRect(-invaderSize/6, -invaderSize/8, 6, 6);
+		ctx.fillRect(invaderSize/6-6, -invaderSize/8, 6, 6);
+		ctx.restore();
+	});
+	ctx.restore();
+}
+
+function drawBullets() {
+	ctx.save();
+	ctx.fillStyle = '#ff0';
+	bullets.forEach(b => {
+		ctx.beginPath();
+		ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+		ctx.fill();
+	});
+	ctx.restore();
+}
+
+function drawGun() {
+	// Draw a simple gun at the bottom center (for FPS feel)
+	ctx.save();
+	ctx.translate(W/2, H-60);
+	ctx.fillStyle = '#888';
+	ctx.fillRect(-18, 0, 36, 40);
+	ctx.fillStyle = '#333';
+	ctx.fillRect(-8, 30, 16, 20);
+	ctx.restore();
+}
+
+function draw() {
+	ctx.clearRect(0, 0, W, H);
+	drawInvaders();
+	drawBullets();
+	drawGun();
+}
+
+function update(dt) {
+	// Move invaders
+	let edge = false;
+	invaders.forEach(inv => {
+		if (!inv.alive) return;
+		inv.x += invaderSpeed * invaderDir * dt;
+		if (inv.x > W - invaderSize || inv.x < invaderSize) edge = true;
+	});
+	if (edge) {
+		invaderDir *= -1;
+		invaders.forEach(inv => {
+			inv.y += 30;
+		});
+	}
+	// Move bullets
+	bullets.forEach(b => b.y -= 0.9 * dt);
+	bullets = bullets.filter(b => b.y > 0);
+	// Bullet collision
+	bullets.forEach(b => {
+		invaders.forEach(inv => {
+			if (!inv.alive) return;
+			if (Math.abs(b.x - inv.x) < invaderSize/2 && Math.abs(b.y - inv.y) < invaderSize/2) {
+				inv.alive = false;
+				b.y = -100;
+				score += 100;
+				document.getElementById('score').textContent = 'Score: ' + score;
+			}
+		});
+	});
+	// Check for game over
+	if (invaders.some(inv => inv.alive && inv.y > H-120)) {
+		gameOver = true;
+	}
+	// Respawn if all dead
+	if (invaders.every(inv => !inv.alive)) {
+		resetInvaders();
+		invaderSpeed += 0.2;
+	}
+}
+
+function gameLoop(now) {
+	if (gameOver) {
+		ctx.save();
+		ctx.fillStyle = '#fff';
+		ctx.font = 'bold 48px "Press Start 2P", monospace';
+		ctx.textAlign = 'center';
+		ctx.fillText('Game Over', W/2, H/2-30);
+		ctx.font = 'bold 28px "Press Start 2P", monospace';
+		ctx.fillText('Click to Restart', W/2, H/2+30);
+		ctx.restore();
+		return;
+	}
+	let dt = 16;
+	draw();
+	update(dt);
+	requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+
+// Shooting
+window.addEventListener('mousedown', e => {
+		if (gameOver) {
+			// Restart
+			score = 0;
+			invaderSpeed = 0.7;
+			resetInvaders();
+			document.getElementById('score').textContent = 'Score: 0';
+			gameOver = false;
+			requestAnimationFrame(gameLoop);
+			return;
+		}
+		const now = Date.now();
+		if (now - lastShot < SHOT_DELAY) return;
+		lastShot = now;
+		bullets.push({x: W/2, y: H-60});
+		playMikuShot();
+});
+
+// Resize
+window.addEventListener('resize', () => {
+	W = window.innerWidth;
+	H = window.innerHeight;
+	canvas.width = W;
+	canvas.height = H;
+	resetInvaders();
+});
+	</script>
+</body>
+</html>
