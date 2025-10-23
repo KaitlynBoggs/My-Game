@@ -1,263 +1,233 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Space Invaders FPS</title>
-	<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-	<style>
-		html, body {
-			margin: 0;
-			padding: 0;
-			width: 100vw;
-			height: 100vh;
-			overflow: hidden;
-			background: #000;
-		}
-		#gameCanvas {
-			display: block;
-			width: 100vw;
-			height: 100vh;
-			background: #000;
-		}
-		#crosshair {
-			position: fixed;
-			left: 50%;
-			top: 50%;
-			width: 32px;
-			height: 32px;
-			margin-left: -16px;
-			margin-top: -16px;
-			pointer-events: none;
-			z-index: 10;
-			opacity: 0.7;
-		}
-		#score {
-			position: fixed;
-			top: 20px;
-			left: 20px;
-			color: #0f0;
-			font-family: 'Press Start 2P', monospace;
-			font-size: 20px;
-			z-index: 20;
-			text-shadow: 2px 2px 0 #222;
-		}
-	</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake Game</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #111;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #111;
+    }
+    #score {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #0f0;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 20px;
+      z-index: 20;
+      text-shadow: 2px 2px 0 #222;
+    }
+  </style>
 </head>
 <body>
-	<canvas id="gameCanvas"></canvas>
-	<div id="score">Score: 0</div>
-	<svg id="crosshair" viewBox="0 0 32 32">
-		<circle cx="16" cy="16" r="10" stroke="#0f0" stroke-width="2" fill="none"/>
-		<line x1="16" y1="0" x2="16" y2="32" stroke="#0f0" stroke-width="2"/>
-		<line x1="0" y1="16" x2="32" y2="16" stroke="#0f0" stroke-width="2"/>
-	</svg>
-	<script>
-// Sound effect: Miku-like chiptune voice for shooting
-function playMikuShot() {
-	const ctx = new (window.AudioContext || window.webkitAudioContext)();
-	const o = ctx.createOscillator();
-	const g = ctx.createGain();
-	// Miku-like: high-pitched, vibrato, short envelope
-	o.type = 'triangle';
-	o.frequency.setValueAtTime(880, ctx.currentTime);
-	o.frequency.linearRampToValueAtTime(1047, ctx.currentTime + 0.05);
-	// Vibrato
-	const lfo = ctx.createOscillator();
-	lfo.type = 'sine';
-	lfo.frequency.value = 12;
-	const lfoGain = ctx.createGain();
-	lfoGain.gain.value = 18;
-	lfo.connect(lfoGain).connect(o.frequency);
-	lfo.start();
-	// Envelope
-	g.gain.setValueAtTime(0.18, ctx.currentTime);
-	g.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.08);
-	g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.18);
-	o.connect(g).connect(ctx.destination);
-	o.start();
-	o.stop(ctx.currentTime + 0.18);
-	o.onended = () => { ctx.close(); };
-}
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-let W = window.innerWidth;
-let H = window.innerHeight;
-canvas.width = W;
-canvas.height = H;
+  <canvas id="gameCanvas"></canvas>
+  <div id="score">Score: 0</div>
+  <script>
+    // --- SNAKE GAME ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let W = window.innerWidth;
+    let H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
 
-// Player state
-let score = 0;
-let gameOver = false;
-let lastShot = 0;
-const SHOT_DELAY = 250; // ms
+    const gridSize = 24;
+    const tileSize = Math.floor(Math.min(W, H) / gridSize);
+    let snake = [{x: 8, y: 8}];
+    let direction = {x: 1, y: 0};
+    let nextDirection = {x: 1, y: 0};
+    let food = {x: 15, y: 8};
+    let score = 0;
+    let gameOver = false;
+    let moveDelay = 120;
+    let lastMove = 0;
 
-// Invader state
-const invaderRows = 3;
-const invaderCols = 7;
-const invaderSpacing = 80;
-const invaderSize = 40;
-let invaders = [];
-let invaderSpeed = 0.7;
-let invaderDir = 1;
 
-// Bullets
-let bullets = [];
+    function playExtremeAppleSound() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = ctx.currentTime;
+      // Main synth: wild sawtooth with pitch dive
+      const osc1 = ctx.createOscillator();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(1200, now);
+      osc1.frequency.linearRampToValueAtTime(80, now + 0.32);
+      osc1.detune.value = 0;
+      // Second synth: square, rapid up then down
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(220, now);
+      osc2.frequency.linearRampToValueAtTime(880, now + 0.08);
+      osc2.frequency.linearRampToValueAtTime(110, now + 0.32);
+      osc2.detune.value = 200;
+      // Noise burst
+      const bufferSize = 2048;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer;
+      // Noise gain envelope
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.7, now);
+      noiseGain.gain.linearRampToValueAtTime(0, now + 0.18);
+      // Gain envelope for synths
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.7, now + 0.04);
+      gain.gain.linearRampToValueAtTime(0.3, now + 0.18);
+      gain.gain.linearRampToValueAtTime(0, now + 0.36);
+      // Distortion
+      const distortion = ctx.createWaveShaper();
+      function makeDistortionCurve(amount) {
+        const n = 512, curve = new Float32Array(n);
+        for (let i = 0; i < n; ++i) {
+          let x = i * 2 / n - 1;
+          curve[i] = ((3 + amount) * x * 20 * Math.PI / 180) / (Math.PI + amount * Math.abs(x));
+        }
+        return curve;
+      }
+      distortion.curve = makeDistortionCurve(180);
+      distortion.oversample = '4x';
+      // Stereo panner for wild sweep
+      const panner = ctx.createStereoPanner();
+      panner.pan.setValueAtTime(-1, now);
+      panner.pan.linearRampToValueAtTime(1, now + 0.36);
+      // Connect
+      osc1.connect(gain);
+      osc2.connect(gain);
+      noise.connect(noiseGain).connect(gain);
+      gain.connect(distortion).connect(panner).connect(ctx.destination);
+      osc1.start(now);
+      osc2.start(now);
+      noise.start(now);
+      osc1.stop(now + 0.36);
+      osc2.stop(now + 0.36);
+      noise.stop(now + 0.18);
+      osc1.onended = () => ctx.close();
+    }
 
-function resetInvaders() {
-	invaders = [];
-	for (let row = 0; row < invaderRows; row++) {
-		for (let col = 0; col < invaderCols; col++) {
-			invaders.push({
-				x: W/2 - (invaderCols/2)*invaderSpacing + col*invaderSpacing,
-				y: 100 + row*invaderSpacing,
-				alive: true
-			});
-		}
-	}
-}
+    function randomFood() {
+      let pos;
+      do {
+        pos = {
+          x: Math.floor(Math.random() * gridSize),
+          y: Math.floor(Math.random() * gridSize)
+        };
+      } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+      return pos;
+    }
 
-resetInvaders();
+    function draw() {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, W, H);
+      // Draw food
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(food.x * tileSize, food.y * tileSize, tileSize, tileSize);
+      // Draw snake
+      for (let i = 0; i < snake.length; i++) {
+        ctx.fillStyle = i === 0 ? '#2ecc40' : '#27ae60';
+        ctx.fillRect(snake[i].x * tileSize, snake[i].y * tileSize, tileSize, tileSize);
+      }
+      // Draw grid (optional)
+      ctx.strokeStyle = '#222';
+      for (let i = 0; i <= gridSize; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * tileSize, 0);
+        ctx.lineTo(i * tileSize, gridSize * tileSize);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * tileSize);
+        ctx.lineTo(gridSize * tileSize, i * tileSize);
+        ctx.stroke();
+      }
+      // Draw score
+      document.getElementById('score').textContent = 'Score: ' + score;
+      if (gameOver) {
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 48px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', W/2, H/2-30);
+        ctx.font = 'bold 28px "Press Start 2P", monospace';
+        ctx.fillText('Press R to Restart', W/2, H/2+30);
+        ctx.restore();
+      }
+    }
 
-function drawInvaders() {
-	ctx.save();
-	invaders.forEach(inv => {
-		if (!inv.alive) return;
-		ctx.save();
-		ctx.translate(inv.x, inv.y);
-		// Simple 3D effect: draw a shadow
-		ctx.fillStyle = '#222';
-		ctx.fillRect(-invaderSize/2+4, -invaderSize/2+8, invaderSize, invaderSize/2);
-		// Invader body
-		ctx.fillStyle = '#0ff';
-		ctx.fillRect(-invaderSize/2, -invaderSize/2, invaderSize, invaderSize/2);
-		ctx.fillStyle = '#fff';
-		ctx.fillRect(-invaderSize/4, -invaderSize/4, invaderSize/2, invaderSize/4);
-		// Eyes
-		ctx.fillStyle = '#222';
-		ctx.fillRect(-invaderSize/6, -invaderSize/8, 6, 6);
-		ctx.fillRect(invaderSize/6-6, -invaderSize/8, 6, 6);
-		ctx.restore();
-	});
-	ctx.restore();
-}
+    function update() {
+      if (gameOver) return;
+      direction = {...nextDirection};
+      const head = {x: snake[0].x + direction.x, y: snake[0].y + direction.y};
+      // Check wall collision
+      if (head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize) {
+        gameOver = true;
+        return;
+      }
+      // Check self collision
+      if (snake.some(s => s.x === head.x && s.y === head.y)) {
+        gameOver = true;
+        return;
+      }
+      snake.unshift(head);
+      // Check food
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        food = randomFood();
+        playExtremeAppleSound();
+      } else {
+        snake.pop();
+      }
+    }
 
-function drawBullets() {
-	ctx.save();
-	ctx.fillStyle = '#ff0';
-	bullets.forEach(b => {
-		ctx.beginPath();
-		ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
-		ctx.fill();
-	});
-	ctx.restore();
-}
+    function gameLoop(ts) {
+      if (!lastMove) lastMove = ts;
+      if (ts - lastMove > moveDelay) {
+        update();
+        lastMove = ts;
+      }
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+    requestAnimationFrame(gameLoop);
 
-function drawGun() {
-	// Draw a simple gun at the bottom center (for FPS feel)
-	ctx.save();
-	ctx.translate(W/2, H-60);
-	ctx.fillStyle = '#888';
-	ctx.fillRect(-18, 0, 36, 40);
-	ctx.fillStyle = '#333';
-	ctx.fillRect(-8, 30, 16, 20);
-	ctx.restore();
-}
+    window.addEventListener('keydown', e => {
+      if (gameOver && e.key.toLowerCase() === 'r') {
+        // Restart
+        snake = [{x: 8, y: 8}];
+        direction = {x: 1, y: 0};
+        nextDirection = {x: 1, y: 0};
+        food = randomFood();
+        score = 0;
+        gameOver = false;
+        return;
+      }
+      if (e.key === 'ArrowUp' && direction.y !== 1) nextDirection = {x: 0, y: -1};
+      if (e.key === 'ArrowDown' && direction.y !== -1) nextDirection = {x: 0, y: 1};
+      if (e.key === 'ArrowLeft' && direction.x !== 1) nextDirection = {x: -1, y: 0};
+      if (e.key === 'ArrowRight' && direction.x !== -1) nextDirection = {x: 1, y: 0};
+    });
 
-function draw() {
-	ctx.clearRect(0, 0, W, H);
-	drawInvaders();
-	drawBullets();
-	drawGun();
-}
-
-function update(dt) {
-	// Move invaders
-	let edge = false;
-	invaders.forEach(inv => {
-		if (!inv.alive) return;
-		inv.x += invaderSpeed * invaderDir * dt;
-		if (inv.x > W - invaderSize || inv.x < invaderSize) edge = true;
-	});
-	if (edge) {
-		invaderDir *= -1;
-		invaders.forEach(inv => {
-			inv.y += 30;
-		});
-	}
-	// Move bullets
-	bullets.forEach(b => b.y -= 0.9 * dt);
-	bullets = bullets.filter(b => b.y > 0);
-	// Bullet collision
-	bullets.forEach(b => {
-		invaders.forEach(inv => {
-			if (!inv.alive) return;
-			if (Math.abs(b.x - inv.x) < invaderSize/2 && Math.abs(b.y - inv.y) < invaderSize/2) {
-				inv.alive = false;
-				b.y = -100;
-				score += 100;
-				document.getElementById('score').textContent = 'Score: ' + score;
-			}
-		});
-	});
-	// Check for game over
-	if (invaders.some(inv => inv.alive && inv.y > H-120)) {
-		gameOver = true;
-	}
-	// Respawn if all dead
-	if (invaders.every(inv => !inv.alive)) {
-		resetInvaders();
-		invaderSpeed += 0.2;
-	}
-}
-
-function gameLoop(now) {
-	if (gameOver) {
-		ctx.save();
-		ctx.fillStyle = '#fff';
-		ctx.font = 'bold 48px "Press Start 2P", monospace';
-		ctx.textAlign = 'center';
-		ctx.fillText('Game Over', W/2, H/2-30);
-		ctx.font = 'bold 28px "Press Start 2P", monospace';
-		ctx.fillText('Click to Restart', W/2, H/2+30);
-		ctx.restore();
-		return;
-	}
-	let dt = 16;
-	draw();
-	update(dt);
-	requestAnimationFrame(gameLoop);
-}
-requestAnimationFrame(gameLoop);
-
-// Shooting
-window.addEventListener('mousedown', e => {
-		if (gameOver) {
-			// Restart
-			score = 0;
-			invaderSpeed = 0.7;
-			resetInvaders();
-			document.getElementById('score').textContent = 'Score: 0';
-			gameOver = false;
-			requestAnimationFrame(gameLoop);
-			return;
-		}
-		const now = Date.now();
-		if (now - lastShot < SHOT_DELAY) return;
-		lastShot = now;
-		bullets.push({x: W/2, y: H-60});
-		playMikuShot();
-});
-
-// Resize
-window.addEventListener('resize', () => {
-	W = window.innerWidth;
-	H = window.innerHeight;
-	canvas.width = W;
-	canvas.height = H;
-	resetInvaders();
-});
-	</script>
+    window.addEventListener('resize', () => {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = W;
+      canvas.height = H;
+    });
+  </script>
 </body>
 </html>
